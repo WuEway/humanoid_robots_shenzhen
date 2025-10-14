@@ -1,0 +1,41 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "ros2 build debug",
+            "type": "shell",
+            "command": "source ~/.local/ros2_rc && rr && colcon build --symlink-install --base-paths ${workspaceFolder} --mixin debug compile-commands",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": [
+                "$colcon-gcc"
+            ],
+        },
+        {
+            "label": "ros2 build release",
+            "type": "shell",
+            "command": "source ~/.local/ros2_rc && rr && colcon build --symlink-install --base-paths ${workspaceFolder} --mixin release compile-commands",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": [
+                "$colcon-gcc"
+            ],
+        },
+        {
+            "label": "colcon: clean",
+            "type": "shell",
+            "command": "rm -rf build install log",
+            "problemMatcher": []
+        }
+    ]
+}
