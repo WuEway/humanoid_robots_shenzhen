@@ -15,13 +15,13 @@ import time
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, PointCloud2, PointField
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
 from .grasp_pose_estimator import GraspPoseEstimator 
 
 
-
+import tf2_ros
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from geometry_msgs.msg import PointStamped
@@ -102,7 +102,7 @@ class AdvancedGroundingDinoProcessor:
         
     def process(self, color_image: np.ndarray, depth_image: np.ndarray, text_prompt: str = "object", camera_intrinsics: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         """
-        处理RGBD数据，检测目标并提取点云
+        处理RGBD数据, 检测目标并提取点云
         
         Args:
             color_image: RGB图像 (BGR格式)
@@ -416,6 +416,9 @@ class GroundingDinoROS2Node(Node):
         """
         super().__init__(node_name)
         
+        self.declare_parameter("grasp_food_pos_frame", 'grasp_food_pos')
+        self.grasp_food_pos_frame = self.get_parameter("grasp_food_pos_frame").get_parameter_value().string_value
+        
         # 初始化CV Bridge
         self.bridge = CvBridge()
         
@@ -435,6 +438,7 @@ class GroundingDinoROS2Node(Node):
         # 初始化 TF2 Buffer 和 Listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
             
         # 配置参数
         self.current_prompt = detection_prompt
@@ -525,14 +529,18 @@ class GroundingDinoROS2Node(Node):
         try:
             self.latest_color_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             self.process_if_ready(self.latest_color_image, self.latest_depth_image)
+            self.get_logger().info("✅ 进入color_callback")
+                            
         except Exception as e:
             self.get_logger().error(f"RGB图像处理失败: {e}")
-    
+
     def depth_callback(self, msg: Image):
         """深度图像回调函数"""
         try:
             self.latest_depth_image = self.bridge.imgmsg_to_cv2(msg, "16UC1")
             self.process_if_ready(self.latest_color_image, self.latest_depth_image)
+            self.get_logger().info("✅ 进入depth_callback")
+                 
         except Exception as e:
             self.get_logger().error(f"深度图像处理失败: {e}")
     
@@ -627,6 +635,22 @@ class GroundingDinoROS2Node(Node):
                             pose_msg.pose.orientation = grasp_orientation
                             
                             self.grasp_pose_pub.publish(pose_msg)
+                            
+                            # 发布至TF
+                            t = TransformStamped()
+                            t.header.stamp = self.get_clock().now().to_msg()
+                            t.header.frame_id = self.robot_base_frame
+                            t.child_frame_id = self.grasp_food_pos_frame
+                            t.transform.translation.x = grasp_point.x
+                            t.transform.translation.y = grasp_point.y
+                            t.transform.translation.z = grasp_point.z
+                            t.transform.rotation.x = grasp_orientation.x
+                            t.transform.rotation.y = grasp_orientation.y
+                            t.transform.rotation.z = grasp_orientation.z
+                            t.transform.rotation.w = grasp_orientation.w
+
+                            self.tf_broadcaster.sendTransform(t)
+                            self.get_logger().info(f"✅ 已发布TF变换: {self.robot_base_frame} -> {self.grasp_food_pos_frame}")
                             self.get_logger().info(f"✅ 成功发布抓取位姿到话题 '{self.grasp_pose_pub.topic}'")
                     else:
                         self.get_logger().warn("点云坐标转换失败或结果为空，跳过抓取计算")

@@ -12,6 +12,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*")),
+        (os.path.join("share", package_name, "srv"), glob("srv/*.srv")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -26,7 +27,9 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "grasp_pose_estimation_node = grasp_pose_estimation.grasp_pose_estimation_node:main"
+            "grasp_pose_estimation_node = grasp_pose_estimation.grasp_pose_estimation_node:main",
+            "ImageToPose_srv = grasp_pose_estimation.ImageToPose_srv:main",
+            "image_to_grasp_client = grasp_pose_estimation.image_to_grasp_client:main",
         ],
     },
 )
