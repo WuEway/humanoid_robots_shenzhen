@@ -20,5 +20,9 @@
         "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_configs_utils/lib/python3.10/site-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ]
+    ],
+    "files.associations": {
+        "*.tex": "tex",
+        "any": "cpp"
+    }
 }

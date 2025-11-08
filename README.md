@@ -32,7 +32,7 @@
 
 ## 核心文件说明
 
-### 1. `grasp_pose_estimation_node.py` - 主节点
+### 1. `groundedSAM_based_edge_estimation_node.py` - 主节点
 
 ROS2 主节点，负责整合视觉检测和抓取计算的完整流程。
 
@@ -184,7 +184,20 @@ GraspPoseEstimator(
 
 ### Python 依赖
 
-已经安装好在./.venv/文件夹中
+已经安装好在./.venv/文件夹中，如果是迁移到一个新环境的话，按照如下方法安装
+```python
+# groundingDino对torch版本要求较低，手动安装torch，groundingdino的requirements.txt一定不能有torch一栏
+uv pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1
+# 然后手动编译Grounding DINO和Segment Anything
+export AM_I_DOCKER=False
+export BUILD_WITH_CUDA=False
+pip install --no-build-isolation -e GroundingDINO
+python -m pip install -e segment_anything
+# 手动安装ultralytics
+
+
+```
+
 
 ### GroundingDino 和 SAM 模型
 

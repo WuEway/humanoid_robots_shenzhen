@@ -27,9 +27,10 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "grasp_pose_estimation_node = grasp_pose_estimation.grasp_pose_estimation_node:main",
+            "groundedSAM_based_edge_estimation_node = grasp_pose_estimation.groundedSAM_based_edge_estimation_node:main",
             "ImageToPose_srv = grasp_pose_estimation.ImageToPose_srv:main",
             "image_to_grasp_client = grasp_pose_estimation.image_to_grasp_client:main",
+            "yolo_based_edge_estimation_node = grasp_pose_estimation.YOLO_based_edge_estimation_node:main",
         ],
     },
 )
