@@ -270,8 +270,9 @@ class GroundingDinoGraspServer(Node):
         self.declare_parameter("detection_prompt", "delivery box. pink takeout bag")
         self.declare_parameter("confidence_threshold", 0.4)
         self.declare_parameter("target_id_in_prompt", 1)  # 1对应"pink takeout bag"
-        self.declare_parameter("robot_base_frame", "nbman_base_link")
-        self.declare_parameter("camera_frame", "nbman_head_rgbd_color_optical_frame")
+        self.declare_parameter("robot_base_frame", "woosh_base_link")
+        # self.declare_parameter("camera_frame", "woosh_head_rgbd_color_optical_frame")
+        self.declare_parameter("camera_frame", "woosh_left_hand_rgbd_color_optical_frame")
         
         # 获取参数
         self.grasp_frame = self.get_parameter("grasp_food_pos_frame").get_parameter_value().string_value

@@ -113,7 +113,7 @@ class ImageSubAndGraspClient(Node):
         self.get_logger().info(f"位置 (x,y,z): ({pose.position.x:.4f}, {pose.position.y:.4f}, {pose.position.z:.4f})")
         self.get_logger().info(f"姿态 (x,y,z,w): ({pose.orientation.x:.4f}, {pose.orientation.y:.4f}, "
                               f"{pose.orientation.z:.4f}, {pose.orientation.w:.4f})")
-        self.get_logger().info("查看TF变换命令: ros2 run tf2_ros tf2_echo nbman_base_link grasp_food_pos")
+        self.get_logger().info("查看TF变换命令: ros2 run tf2_ros tf2_echo woosh_base_link grasp_food_pos")
 
 
 def main(args=None):

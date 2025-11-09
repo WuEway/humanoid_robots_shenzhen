@@ -430,8 +430,8 @@ class YOLOROS2Node(Node):
         self.get_logger().info(f"🛠️  抓取位姿估计器已初始化 (3D点云可视化已{pc_vis_status})")
 
         # 定义坐标系名称，方便管理
-        self.robot_base_frame = 'nbman_base_link'  # 确认这是你的机器人基座标系
-        self.camera_frame = 'nbman_head_rgbd_color_optical_frame' # 确认这是你的相机坐标系
+        self.robot_base_frame = 'woosh_base_link'  # 确认这是你的机器人基座标系
+        self.camera_frame = 'woosh_left_hand_rgbd_color_optical_frame' # 确认这是你的相机坐标系
 
         # 初始化 TF2 Buffer 和 Listener
         self.tf_buffer = Buffer()
@@ -481,14 +481,14 @@ class YOLOROS2Node(Node):
         # 创建订阅者
         self.color_sub = self.create_subscription(
             Image,
-            '/woosh/camera/woosh_head_rgbd/color/image_raw',
+            '/woosh/camera/woosh_left_hand_rgbd/color/image_raw',
             self.color_callback,
             10
         )
         
         self.depth_sub = self.create_subscription(
             Image,
-            '/woosh/camera/woosh_head_rgbd/aligned_depth_to_color/image_raw',
+            '/woosh/camera/woosh_left_hand_rgbd/aligned_depth_to_color/image_raw',
             self.depth_callback,
             10
         )
@@ -747,7 +747,6 @@ class YOLOROS2Node(Node):
         
         # 将颜色(R,G,B)合并到一个UINT32字段中
         colors_bgr = colors[:, [2, 1, 0]]
-        cv2.imshow("Colors BGR", colors_bgr)
         rgb_packed = np.array((colors_bgr[:, 2] << 16) | (colors_bgr[:, 1] << 8) | (colors_bgr[:, 0]), dtype=np.uint32)
         
         # 将点和颜色数据合并

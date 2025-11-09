@@ -18,7 +18,11 @@ from sensor_msgs.msg import Image, PointCloud2, PointField
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
-from .grasp_pose_estimator import GraspPoseEstimator 
+
+# ------------[本地模块导入]------------
+from .handle_grasp_pose_estimation import HandleGraspEstimator
+import open3d as o3d
+# ------------[结束本地模块导入]------------
 
 
 import tf2_ros
@@ -427,9 +431,25 @@ class GroundingDinoROS2Node(Node):
         self.get_logger().info("🤖 使用GroundingDino+SAM模型")
 
         # 初始化抓取位姿估计器
-        self.grasp_estimator = GraspPoseEstimator(visualize=enable_pointcloud_visualization)
         pc_vis_status = "开启" if enable_pointcloud_visualization else "关闭"
-        self.get_logger().info(f"🛠️  抓取位姿估计器已初始化 (3D点云可视化已{pc_vis_status})")
+        self.grasp_estimator = HandleGraspEstimator(
+            voxel_size=0.005,              # 提手点云内部处理的体素大小
+            dbscan_eps=0.02,               # 提手聚类Eps
+            dbscan_min_points=30,
+            hsv_v_max=0.35,                # 黑色/深棕色的亮度阈值
+            hsv_s_max=0.6,                 # 黑色/深棕色的饱和度阈值
+            u_shape_min_points=50,         # U形簇最小点数
+            u_shape_central_ratio=0.4,     # U形检测中心区域比例
+            u_shape_hollow_ratio=0.15,     # U形空心比例
+            grasp_bottom_height=0.03,      # 抓取点计算高度
+            visualize=enable_pointcloud_visualization
+        )
+        self.get_logger().info(f"🛠️  [Handle] U形提手抓取估计器已初始化 (3D点云可视化已{pc_vis_status})")
+
+        # 添加点云累积相关变量
+        self.accumulated_pcd = o3d.geometry.PointCloud()
+        self.accumulation_voxel_size = 0.01  # 累积点云的体素大小 (1cm)
+        self.target_detected_last_frame = False # 用于检测目标丢失
 
         # 定义坐标系名称，方便管理
         self.robot_base_frame = 'woosh_base_link'  # 确认这是你的机器人基座标系
@@ -603,6 +623,9 @@ class GroundingDinoROS2Node(Node):
                 
         finally:
             self.processing = False  # 清除处理标志
+
+            target_detected_this_frame = False
+
             # 将检测结果点云转换到机器人坐标系下，计算抓取点
             if self.target_label and self.target_label in self.detected_objects:
                 label, _, pointcloud_dict = self.detected_objects[self.target_label]
@@ -611,21 +634,40 @@ class GroundingDinoROS2Node(Node):
                     points_cam = pointcloud_dict["points"]
                     colors_cam = pointcloud_dict["colors"]
                     
-                    self.get_logger().info(f"正在为 '{label}' 计算抓取位姿...")
+                    self.get_logger().info(f"发现目标 '{label}'，正在转换并累积点云...")
                     
                     # 将点云转换到机器人基座标系
                     points_robot = self._transform_point_cloud(points_cam, self.camera_frame, self.robot_base_frame)
 
                     # 检查转换是否成功
                     if points_robot is not None and points_robot.shape[0] > 0:
-                        # # 创建并发布调试用的点云消息
-                        # debug_pc_msg = self._create_point_cloud_msg(points_robot, colors_cam, self.robot_base_frame)
-                        # self.debug_pc_pub.publish(debug_pc_msg)
-                        # self.get_logger().info("已发布调试点云到 /grounding_dino/debug_pointcloud")
+                        target_detected_this_frame = True
 
-                        # 使用GraspPoseEstimator计算抓取位姿
-                        grasp_pose_result = self.grasp_estimator.calculate_grasp_pose(points_robot, colors_cam)
+                        # 2. 创建当前帧的 Open3D 点云
+                        current_pcd = o3d.geometry.PointCloud()
+                        current_pcd.points = o3d.utility.Vector3dVector(points_robot)
+                        current_pcd.colors = o3d.utility.Vector3dVector(colors_cam / 255.0) # 颜色转为 0-1
+
+                        o3d.io.write_point_cloud("takeout_bag.pcd", current_pcd)
                         
+                        # 3. 累积点云
+                        self.accumulated_pcd += current_pcd
+                        self.accumulated_pcd = self.accumulated_pcd.voxel_down_sample(self.accumulation_voxel_size)
+                        
+                        self.get_logger().info(f"☁️ 累积点云大小: {len(self.accumulated_pcd.points)} 点")
+
+                        # 4. 提取累积的点和颜色
+                        acc_points = np.asarray(self.accumulated_pcd.points)
+                        acc_colors = (np.asarray(self.accumulated_pcd.colors) * 255.0).astype(np.uint8) # 颜色转回 0-255
+
+                        # # --- 可选: 发布累积的调试点云 ---
+                        debug_pc_msg = self._create_point_cloud_msg(acc_points, acc_colors, self.robot_base_frame)
+                        self.debug_pc_pub.publish(debug_pc_msg)
+                        self.get_logger().info("已发布 [累积] 调试点云")
+
+                        # 5. 调用新的提手抓取估计器
+                        grasp_pose_result = self.grasp_estimator.calculate_grasp_pose(acc_points, acc_colors)
+
                         if grasp_pose_result:
                             grasp_point, grasp_orientation = grasp_pose_result
                             
@@ -652,10 +694,16 @@ class GroundingDinoROS2Node(Node):
                             t.transform.rotation.w = grasp_orientation.w
 
                             self.tf_broadcaster.sendTransform(t)
-                            self.get_logger().info(f"✅ 已发布TF变换: {self.robot_base_frame} -> {self.grasp_food_pos_frame}")
-                            self.get_logger().info(f"✅ 成功发布抓取位姿到话题 '{self.grasp_pose_pub.topic}'")
+                            self.get_logger().info(f"✅ [Handle] 已发布TF变换: {self.robot_base_frame} -> {self.grasp_food_pos_frame}")
                     else:
                         self.get_logger().warn("点云坐标转换失败或结果为空，跳过抓取计算")
+
+            # 6. 检查目标是否丢失，如果丢失则清除累积点云
+            if not target_detected_this_frame and self.target_detected_last_frame:
+                self.get_logger().warn("🎯 目标丢失! 清除累积点云。")
+                self.accumulated_pcd = o3d.geometry.PointCloud()
+            
+            self.target_detected_last_frame = target_detected_this_frame
 
     def _update_detection_results(self):
         """更新检测结果到成员变量"""

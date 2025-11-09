@@ -13,12 +13,17 @@ import os
 import time
 
 import rclpy
+import message_filters
 from rclpy.node import Node
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
-from .grasp_pose_estimator import GraspPoseEstimator 
+
+# ------------[本地模块导入]------------
+from .handle_grasp_pose_estimation import HandleGraspEstimator
+import open3d as o3d
+# ------------[结束本地模块导入]------------
 
 
 import tf2_ros
@@ -151,6 +156,7 @@ class YOLOProcessor:
         try:
             print("🤖 使用YOLO模型检测")
             
+            self.imgsz = max(image.shape[:2])
             # 使用YOLO进行推理
             results = self.model.predict(
                 source=image,
@@ -183,28 +189,35 @@ class YOLOProcessor:
             # 获取原始图像尺寸
             orig_h, orig_w = result.masks.orig_shape
             mask_h, mask_w = masks_data.shape[1:]
+            print(f"原始图像尺寸: {orig_w}x{orig_h}, 掩码尺寸: {mask_w}x{mask_h}")
             
             # 处理每个检测结果
             for i, (mask_padded, box, confidence, class_id) in enumerate(
                 zip(masks_data, boxes, confidences, class_ids)
             ):
-                # 处理掩码尺寸（可能需要裁剪padding）
+                # 处理掩码高度尺寸（可能需要裁剪padding）
                 h_diff = mask_h - orig_h
                 if h_diff > 0:
                     # 掩码比原图高，需要裁剪掉多余的padding
                     top_pad = h_diff // 2
                     bottom_pad = h_diff - top_pad
                     mask_cropped = mask_padded[top_pad:mask_h-bottom_pad, :]
-                elif h_diff < 0:
-                    # 掩码比原图小，需要填充
-                    top_pad = abs(h_diff) // 2
-                    bottom_pad = abs(h_diff) - top_pad
-                    mask_cropped = np.pad(mask_padded, ((top_pad, bottom_pad), (0, 0)), mode='constant')
                 else:
                     mask_cropped = mask_padded
+                # 处理掩码宽度尺寸（可能需要裁剪padding）
+                w_diff = mask_w - orig_w
+                if w_diff > 0:
+                    # 掩码比原图宽，需要裁剪掉多余的padding
+                    left_pad = w_diff // 2
+                    right_pad = w_diff - left_pad
+                    mask_cropped = mask_cropped[:, left_pad:mask_w-right_pad]
+                else:
+                    mask_cropped = mask_cropped
+
+                print(f"裁剪后掩码尺寸: {mask_cropped.shape[1]}x{mask_cropped.shape[0]}")
                 
                 # 二值化掩码
-                binary_mask = (mask_cropped > 0.5).astype(np.uint8)
+                binary_mask = (mask_cropped > 0.001).astype(np.uint8)
                 
                 # 获取边界框坐标
                 x1, y1, x2, y2 = box.astype(int)
@@ -417,13 +430,24 @@ class YOLOROS2Node(Node):
         self.get_logger().info("🤖 使用YOLO模型")
 
         # 初始化抓取位姿估计器
-        self.grasp_estimator = GraspPoseEstimator(visualize=enable_pointcloud_visualization)
         pc_vis_status = "开启" if enable_pointcloud_visualization else "关闭"
-        self.get_logger().info(f"🛠️  抓取位姿估计器已初始化 (3D点云可视化已{pc_vis_status})")
+        self.grasp_estimator = HandleGraspEstimator(
+            voxel_size=0.005,              # 提手点云内部处理的体素大小
+            dbscan_eps=0.02,               # 提手聚类Eps
+            dbscan_min_points=30,
+            hsv_v_max=0.35,                # 黑色/深棕色的亮度阈值
+            hsv_s_max=0.6,                 # 黑色/深棕色的饱和度阈值
+            u_shape_min_points=50,         # U形簇最小点数
+            u_shape_central_ratio=0.4,     # U形检测中心区域比例
+            u_shape_hollow_ratio=0.15,     # U形空心比例
+            grasp_bottom_height=0.03,      # 抓取点计算高度 (z_min + 0.03m)
+            visualize=enable_pointcloud_visualization
+        )
+        self.get_logger().info(f"🛠️  [Handle] U形提手抓取估计器已初始化 (3D点云可视化已{pc_vis_status})")
 
         # 定义坐标系名称，方便管理
-        self.robot_base_frame = 'nbman_base_link'  # 确认这是你的机器人基座标系
-        self.camera_frame = 'nbman_head_rgbd_color_optical_frame' # 确认这是你的相机坐标系
+        self.robot_base_frame = 'woosh_base_link'  # 确认这是你的机器人基座标系
+        self.camera_frame = 'woosh_left_hand_rgbd_color_optical_frame' # 确认这是你的相机坐标系
 
         # 初始化 TF2 Buffer 和 Listener
         self.tf_buffer = Buffer()
@@ -466,24 +490,33 @@ class YOLOROS2Node(Node):
         # 检测结果存储 - 按类别分别存储
         self.detected_objects = {}  # 存储检测到的物体 {类别名: [名字, 置信度, 点云]}
         
-        # 图像数据缓存
-        self.latest_color_image = None
-        self.latest_depth_image = None
-        
-        # 创建订阅者
-        self.color_sub = self.create_subscription(
+        # 点云累积变量 (保持不变)
+        self.accumulated_pcd = o3d.geometry.PointCloud()
+        self.accumulation_voxel_size = 0.01
+        self.target_detected_last_frame = False
+
+        # 1. 创建 MessageFilter 订阅者
+        self.color_sub_filter = message_filters.Subscriber(
+            self,
             Image,
-            '/woosh/camera/woosh_head_rgbd/color/image_raw',
-            self.color_callback,
-            10
+            '/woosh/camera/woosh_head_rgbd/color/image_raw'
+        )
+        self.depth_sub_filter = message_filters.Subscriber(
+            self,
+            Image,
+            '/woosh/camera/woosh_head_rgbd/aligned_depth_to_color/image_raw'
+        )
+
+        # 2. 创建时间同步器 (ApproximateTimeSynchronizer)
+        # slop=0.1 表示允许 color 和 depth 之间有 0.1s (100ms) 的时间戳差异
+        self.ts = message_filters.ApproximateTimeSynchronizer(
+            [self.color_sub_filter, self.depth_sub_filter],
+            queue_size=10,  # 队列大小
+            slop=0.1
         )
         
-        self.depth_sub = self.create_subscription(
-            Image,
-            '/woosh/camera/woosh_head_rgbd/aligned_depth_to_color/image_raw',
-            self.depth_callback,
-            10
-        )
+        # 3. 注册同步后的回调函数
+        self.ts.registerCallback(self.synchronized_callback)
 
         # 创建抓取位姿发布者
         self.grasp_pose_pub = self.create_publisher(
@@ -510,44 +543,47 @@ class YOLOROS2Node(Node):
         if self.target_label:
             self.get_logger().info(f"🎯 检测目标类别: '{self.target_label}'")
         self.get_logger().info(f"🎚️  置信度阈值: {self.confidence_threshold}")
-    
-        
-    def color_callback(self, msg: Image):
-        """RGB图像回调函数"""
-        try:
-            self.latest_color_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            self.process_if_ready(self.latest_color_image, self.latest_depth_image)
-            self.get_logger().info("✅ 进入color_callback")
-                            
-        except Exception as e:
-            self.get_logger().error(f"RGB图像处理失败: {e}")
 
-    def depth_callback(self, msg: Image):
-        """深度图像回调函数"""
-        try:
-            self.latest_depth_image = self.bridge.imgmsg_to_cv2(msg, "16UC1")
-            self.process_if_ready(self.latest_color_image, self.latest_depth_image)
-            self.get_logger().info("✅ 进入depth_callback")
-                 
-        except Exception as e:
-            self.get_logger().error(f"深度图像处理失败: {e}")
-    
-    def process_if_ready(self, cur_color_image: np.ndarray, cur_depth_image: np.ndarray):
-        """检查是否有完整的RGBD数据，如果有则处理"""
-        if cur_color_image is None or cur_depth_image is None:
-            return
+    def synchronized_callback(self, color_msg: Image, depth_msg: Image):
+        """
+        同步的RGB和Depth消息的回调函数
+        这是处理 pipeline 的唯一入口
+        """
         
-        # 防止并发处理
+        # 解决 2s 延迟的关键：如果正在处理，立即丢弃新帧
         if self.processing:
+            self.get_logger().warn("处理器正忙 (耗时2s)，跳过此帧", throttle_duration_sec=2.0)
             return
+            
+        self.processing = True  # <--- 设置处理锁
+        self.get_logger().info("✅ 收到同步帧，开始处理...")
+
+        try:
+            # 1. 转换数据
+            cur_color_image = self.bridge.imgmsg_to_cv2(color_msg, "bgr8")
+            cur_depth_image = self.bridge.imgmsg_to_cv2(depth_msg, "16UC1")
+            
+            # 2. 锁定时间戳 (我们使用 color msg 的时间戳作为基准)
+            cur_stamp = color_msg.header.stamp
+
+            # 3. 调用核心处理逻辑
+            self.process_frame_data(cur_color_image, cur_depth_image, cur_stamp)
+
+        except Exception as e:
+            self.get_logger().error(f"在 synchronized_callback 中发生严重错误: {e}")
+        finally:
+            self.processing = False # <--- 释放处理锁
+    
+        
+    def process_frame_data(self, cur_color_image: np.ndarray, cur_depth_image: np.ndarray, cur_stamp: rclpy.time.Time):
+        """
+        处理一帧同步好的RGBD数据
+        """
             
         self.frame_count += 1
         
-        # 根据配置决定处理频率
-        self.processing = True  # 设置处理标志
-            
         try:
-            self.get_logger().info(f"第 {self.frame_count} 帧 - 使用YOLO检测")
+            self.get_logger().info(f"第 {self.frame_count} 帧 - 使用YOLO检测 (Stamp: {cur_stamp.sec}.{cur_stamp.nanosec})")
             
             # 执行检测 (YOLO不需要text_prompt参数，但为了兼容保留)
             self.last_results = self.processor.process(
@@ -588,7 +624,8 @@ class YOLOROS2Node(Node):
                 self.last_results = None
                 
         finally:
-            self.processing = False  # 清除处理标志
+            target_detected_this_frame = False
+
             # 将检测结果点云转换到机器人坐标系下，计算抓取点
             if self.target_label and self.target_label in self.detected_objects:
                 label, _, pointcloud_dict = self.detected_objects[self.target_label]
@@ -597,20 +634,42 @@ class YOLOROS2Node(Node):
                     points_cam = pointcloud_dict["points"]
                     colors_cam = pointcloud_dict["colors"]
                     
-                    self.get_logger().info(f"正在为 '{label}' 计算抓取位姿...")
+                    self.get_logger().info(f"📦 发现目标 '{label}'，正在转换并累积点云...")
                     
-                    # 将点云转换到机器人基座标系
-                    points_robot = self._transform_point_cloud(points_cam, self.camera_frame, self.robot_base_frame)
+                    # 1. 将当前帧的点云转换到机器人基座标系
+                    points_robot = self._transform_point_cloud(
+                        points_cam, 
+                        self.camera_frame, 
+                        self.robot_base_frame,
+                        cur_stamp  
+                    )
 
                     # 检查转换是否成功
                     if points_robot is not None and points_robot.shape[0] > 0:
-                        # # 创建并发布调试用的点云消息
-                        # debug_pc_msg = self._create_point_cloud_msg(points_robot, colors_cam, self.robot_base_frame)
-                        # self.debug_pc_pub.publish(debug_pc_msg)
-                        # self.get_logger().info("已发布调试点云到 /grounding_dino/debug_pointcloud")
+                        target_detected_this_frame = True
 
-                        # 使用GraspPoseEstimator计算抓取位姿
-                        grasp_pose_result = self.grasp_estimator.calculate_grasp_pose(points_robot, colors_cam)
+                        # 2. 创建当前帧的 Open3D 点云
+                        current_pcd = o3d.geometry.PointCloud()
+                        current_pcd.points = o3d.utility.Vector3dVector(points_robot)
+                        current_pcd.colors = o3d.utility.Vector3dVector(colors_cam / 255.0) # 颜色转为 0-1
+
+                        # 3. 累积点云
+                        self.accumulated_pcd += current_pcd
+                        self.accumulated_pcd = self.accumulated_pcd.voxel_down_sample(self.accumulation_voxel_size)
+                        
+                        self.get_logger().info(f"☁️ 累积点云大小: {len(self.accumulated_pcd.points)} 点")
+
+                        # 4. 提取累积的点和颜色
+                        acc_points = np.asarray(self.accumulated_pcd.points)
+                        acc_colors = (np.asarray(self.accumulated_pcd.colors) * 255.0).astype(np.uint8) # 颜色转回 0-255
+
+                        # # --- 可选: 发布累积的调试点云 ---
+                        debug_pc_msg = self._create_point_cloud_msg(acc_points, acc_colors, self.robot_base_frame)
+                        self.debug_pc_pub.publish(debug_pc_msg)
+                        self.get_logger().info("已发布 [累积] 调试点云")
+
+                        # 5. 使用GraspPoseEstimator计算抓取位姿 (在累积点云上)
+                        grasp_pose_result = self.grasp_estimator.calculate_grasp_pose(acc_points, acc_colors)
                         
                         if grasp_pose_result:
                             grasp_point, grasp_orientation = grasp_pose_result
@@ -638,10 +697,17 @@ class YOLOROS2Node(Node):
                             t.transform.rotation.w = grasp_orientation.w
 
                             self.tf_broadcaster.sendTransform(t)
-                            self.get_logger().info(f"✅ 已发布TF变换: {self.robot_base_frame} -> {self.grasp_food_pos_frame}")
-                            self.get_logger().info(f"✅ 成功发布抓取位姿到话题 '{self.grasp_pose_pub.topic}'")
+                            self.get_logger().info(f"✅ [Handle] 已发布TF变换: {self.robot_base_frame} -> {self.grasp_food_pos_frame}")
+                            self.get_logger().info(f"✅ [Handle] 成功发布抓取位姿到话题 '{self.grasp_pose_pub.topic}'")
                     else:
                         self.get_logger().warn("点云坐标转换失败或结果为空，跳过抓取计算")
+
+            # 6. 检查目标是否丢失，如果丢失则清除累积点云
+            if not target_detected_this_frame and self.target_detected_last_frame:
+                self.get_logger().warn("🎯 目标丢失! 清除累积点云。")
+                self.accumulated_pcd = o3d.geometry.PointCloud()
+            
+            self.target_detected_last_frame = target_detected_this_frame
 
     def _update_detection_results(self):
         """更新检测结果到成员变量"""
@@ -672,7 +738,7 @@ class YOLOROS2Node(Node):
             else:
                 self.get_logger().debug(f" 跳过 '{label}': 置信度 {confidence:.3f} < {self.confidence_threshold} 或无点云")
         
-    def _transform_point_cloud(self, point_cloud_numpy: np.ndarray, source_frame: str, target_frame: str) -> Optional[np.ndarray]:
+    def _transform_point_cloud(self, point_cloud_numpy: np.ndarray, source_frame: str, target_frame: str, timestamp: rclpy.time.Time) -> Optional[np.ndarray]:
         """
         将一个NumPy点云从源坐标系转换到目标坐标系
 
@@ -688,11 +754,13 @@ class YOLOROS2Node(Node):
             return np.array([]) # 如果点云为空，直接返回空数组
             
         try:
-            # 1. 查找最新的可用变换
+            # 1. 查找指定时间戳的变换
             transform = self.tf_buffer.lookup_transform(
                 target_frame,
                 source_frame,
-                rclpy.time.Time())
+                timestamp,  # <--- 使用传入的时间戳
+                timeout=rclpy.duration.Duration(seconds=0.1) # 增加一个短暂超时
+            )
 
             # 2. 逐点进行变换
             # (对于大规模点云有更高效的方法，但这种方法最清晰、最可靠)
@@ -739,7 +807,6 @@ class YOLOROS2Node(Node):
         
         # 将颜色(R,G,B)合并到一个UINT32字段中
         colors_bgr = colors[:, [2, 1, 0]]
-        cv2.imshow("Colors BGR", colors_bgr)
         rgb_packed = np.array((colors_bgr[:, 2] << 16) | (colors_bgr[:, 1] << 8) | (colors_bgr[:, 0]), dtype=np.uint32)
         
         # 将点和颜色数据合并
@@ -798,7 +865,7 @@ def main():
         camera_intrinsics=camera_intrinsics,
         enable_image_visualization=True,  # 设置为True可开启2D图像检测结果窗口
         enable_pointcloud_visualization=False, # 设置为True可开启3D点云处理窗口
-        target_class_name="pink_bag"  # 设置你训练的YOLO模型中的目标类别名称
+        target_class_name="takeout bag"  # 设置你训练的YOLO模型中的目标类别名称
     )
     
     print("\n" + "="*60)
