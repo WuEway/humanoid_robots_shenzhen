@@ -19,6 +19,7 @@ from scipy.spatial.transform import Rotation as R
 from geometry_msgs.msg import PoseStamped, Quaternion, Point
 from typing import Optional, Tuple
 import matplotlib.colors
+import matplotlib.pyplot as plt
 
 class HandleGraspEstimator:
     """从点云中估计U形提手抓取位姿的类"""
@@ -94,11 +95,26 @@ class HandleGraspEstimator:
         unique_labels = set(labels)
         
         if self.visualize:
-            # 可视化所有黑色聚类
-            colors = plt.get_cmap("tab20")(labels / (labels.max() if labels.max() > 0 else 1))
-            colors[labels < 0] = 0  # 噪声为黑色
-            black_pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-            o3d.visualization.draw_geometries([black_pcd], window_name="所有黑色聚类")
+            # 方案1: 只显示有效聚类，完全忽略噪声
+            valid_mask = labels >= 0  # 只保留非噪声点
+            
+            # 创建只包含有效聚类的点云
+            valid_labels = labels[valid_mask]
+            valid_pcd = black_pcd.select_by_index(np.where(valid_mask)[0])
+
+            # 为有效聚类分配颜色
+            if len(valid_labels) > 0:
+                # colors = plt.get_cmap("tab20")(valid_labels / (valid_labels.max() if valid_labels.max() > 0 else 1))
+                # valid_pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+                # o3d.visualization.draw_geometries([valid_pcd], window_name="有效黑色聚类 (无噪声)")
+                num_clusters = len(set(labels[valid_mask]))
+                print(f"聚类结果: {num_clusters} 个有效簇")
+                
+                # 直接使用原始颜色可视化
+                o3d.visualization.draw_geometries([valid_pcd], window_name=f"黑色聚类 ({num_clusters}",)
+            else:
+                print("⚠️ 没有找到有效聚类")
+
 
         # 5. U形检测 (Hollow Check)
         u_shape_clusters = [] # 存储 (pcd, point_count)
@@ -175,7 +191,41 @@ class HandleGraspEstimator:
         方法：将其投影到XY平面，检查其中心区域的点密度。
         """
         P = np.asarray(pcd.points)
-        P_2d = P[:, :2] # 投影到XY平面
+        # P_2d = P[:, :2] # 投影到XY平面
+
+        # 使用PCA计算投影平面
+        try:
+            # 计算点云的均值和协方差矩阵
+            mean = np.mean(P, axis=0)
+            P_centered = P - mean
+            cov = np.cov(P_centered.T)
+            
+            # 特征值分解
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            
+            # 按特征值从大到小排序
+            idx = eigenvalues.argsort()[::-1]
+            eigenvalues = eigenvalues[idx]
+            eigenvectors = eigenvectors[:, idx]
+            
+            # 获取前两个主成分（最大方差的两个方向）
+            pc1 = eigenvectors[:, 0]  # 第一主成分
+            pc2 = eigenvectors[:, 1]  # 第二主成分
+            
+            # 检查前两个特征值是否足够大（避免退化情况）
+            if eigenvalues[0] < 1e-6 or eigenvalues[1] < 1e-6:
+                return False  # 点云过于扁平或呈线状
+            
+            # 将点云投影到前两个主成分张成的平面
+            # P_2d[i] = [P_centered[i] · pc1, P_centered[i] · pc2]
+            P_2d = np.column_stack([
+                np.dot(P_centered, pc1),
+                np.dot(P_centered, pc2)
+            ])
+            
+        except (ValueError, np.linalg.LinAlgError):
+            print("⚠️ [Handle] PCA计算失败，无法投影点云到2D平面")
+            return False  # PCA计算失败
 
         try:
             # 计算2D AABB (轴对齐边界框)
@@ -187,7 +237,7 @@ class HandleGraspEstimator:
         x_range = x_max - x_min
         y_range = y_max - y_min
         
-        if x_range < 1e-3 or y_range < 1e-3:
+        if x_range < 1e-2 or y_range < 1e-2:
             return False # 是条线，不是U形
 
         # 定义中心区域 (例如，一个缩小40%的框)
@@ -205,9 +255,79 @@ class HandleGraspEstimator:
         total_points = P.shape[0]
         
         hollow_ratio = count_central / total_points
-        
+
+        # self._visualize_pca_projection(
+        #     pcd, P_2d,
+        #     x_min, x_max, y_min, y_max,
+        #     cx_min, cx_max, cy_min, cy_max,
+        #     hollow_ratio < self.u_shape_hollow_ratio
+        # )
+
         # 如果中心区域的点数比例低于阈值，则认为是“空心”U形
         return hollow_ratio < self.u_shape_hollow_ratio
+    
+    def _visualize_pca_projection(self, pcd: o3d.geometry.PointCloud, P_2d: np.ndarray, 
+                                x_min: float, x_max: float, y_min: float, y_max: float,
+                                cx_min: float, cx_max: float, cy_min: float, cy_max: float,
+                                is_u_shape: bool) -> None:
+        """
+        可视化PCA投影后的2D点云和中心检测框
+        
+        Args:
+            pcd: 原始3D点云
+            P_2d: 投影后的2D点云 (N, 2)
+            x_min, x_max, y_min, y_max: 2D包围盒边界
+            cx_min, cx_max, cy_min, cy_max: 中心区域边界
+            is_u_shape: 是否检测为U形
+        """
+        import matplotlib.pyplot as plt
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # --- 左图: 2D投影点云 ---
+        ax1.scatter(P_2d[:, 0], P_2d[:, 1], c='blue', s=5, alpha=0.6, label='projected cloud')
+        
+        # 绘制外部包围盒
+        bbox_x = [x_min, x_max, x_max, x_min, x_min]
+        bbox_y = [y_min, y_min, y_max, y_max, y_min]
+        ax1.plot(bbox_x, bbox_y, 'g-', linewidth=2, label='bounding box')
+        
+        # 绘制中心检测区域
+        central_x = [cx_min, cx_max, cx_max, cx_min, cx_min]
+        central_y = [cy_min, cy_min, cy_max, cy_max, cy_min]
+        ax1.plot(central_x, central_y, 'r--', linewidth=2, label='central region')
+        
+        # 标记中心区域的点
+        mask_x = (P_2d[:, 0] >= cx_min) & (P_2d[:, 0] <= cx_max)
+        mask_y = (P_2d[:, 1] >= cy_min) & (P_2d[:, 1] <= cy_max)
+        central_points = P_2d[mask_x & mask_y]
+        
+        if central_points.shape[0] > 0:
+            ax1.scatter(central_points[:, 0], central_points[:, 1], 
+                    c='red', s=10, alpha=0.8, label=f'central points ({len(central_points)})')
+
+        ax1.set_xlabel('PC1 (First Principal Component)')
+        ax1.set_ylabel('PC2 (Second Principal Component)')
+        ax1.set_title(f'PCA Projection to 2D Plane\n{"[YES] U-Shape" if is_u_shape else "[NO] Solid"}')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        ax1.set_aspect('equal', adjustable='box')
+        
+        # --- 右图: 3D原始点云俯视图 ---
+        P = np.asarray(pcd.points)
+        colors = np.asarray(pcd.colors)
+        
+        ax2.scatter(P[:, 0], P[:, 1], c=colors if colors.size > 0 else 'gray', 
+                s=5, alpha=0.6, label='Original Point Cloud (XY View)')
+        ax2.set_xlabel('X')
+        ax2.set_ylabel('Y')
+        ax2.set_title('3D Point Cloud Top View (XY Plane)')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        ax2.set_aspect('equal', adjustable='box')
+
+        plt.tight_layout()
+        plt.show()
 
     def _calculate_pose_from_handle(self, handle_pcd: o3d.geometry.PointCloud) -> Optional[Tuple[Point, Quaternion, np.ndarray]]:
         """从U形提手点云计算抓取位姿"""
@@ -233,45 +353,49 @@ class HandleGraspEstimator:
         # Z 轴: 竖直向下
         Z_grasp = np.array([0.0, 0.0, -1.0])
 
-        # Y 轴: 提手平面在水平(XY)上的投影
+        # X 轴: 提手平面法向量在水平(XY)上的投影
         try:
-            # PCA 找到提手的主方向 (方差最大的方向)
+            # PCA 找到提手的主平面
             mean, cov = handle_pcd.compute_mean_and_covariance()
             eigenvalues, eigenvectors = np.linalg.eigh(cov)
-            pc1_3d = eigenvectors[:, -1] # 第一主成分 (3D)
+            
+            # 第三主成分 (最小特征值对应的方向) = 平面法向量
+            pc3_3d = eigenvectors[:, 0]  # 最小特征值对应的特征向量
+            
         except Exception:
             # 如果PCA失败 (例如点太少)，使用默认X轴
-            pc1_3d = np.array([1.0, 0.0, 0.0])
+            pc3_3d = np.array([1.0, 0.0, 0.0])
             
-        # 将主方向投影到XY平面
-        v_y = np.array([pc1_3d[0], pc1_3d[1], 0.0])
-        norm_y = np.linalg.norm(v_y)
+        # 将平面法向量投影到XY平面
+        v_x = np.array([pc3_3d[0], pc3_3d[1], 0.0])
+        norm_x = np.linalg.norm(v_x)
         
-        if norm_y < 1e-6:
-            # 如果主方向是竖直的 (例如提手垂直于地面)
-            # 尝试使用第二主成分
-            pc2_3d = eigenvectors[:, -2]
-            v_y = np.array([pc2_3d[0], pc2_3d[1], 0.0])
-            norm_y = np.linalg.norm(v_y)
+        if norm_x < 1e-6:
+            # 如果法向量是竖直的 (平面是水平的)
+            # 退化情况：使用第二主成分投影
+            pc2_3d = eigenvectors[:, 1]
+            v_x = np.array([pc2_3d[0], pc2_3d[1], 0.0])
+            norm_x = np.linalg.norm(v_x)
             
-            if norm_y < 1e-6:
-                # 还是失败，用默认 Y=(1,0,0)
-                v_y = np.array([1.0, 0.0, 0.0])
-                norm_y = 1.0
+            if norm_x < 1e-6:
+                # 还是失败，用默认 X=(1,0,0)
+                v_x = np.array([1.0, 0.0, 0.0])
+                norm_x = 1.0
 
-        Y_grasp = v_y / norm_y
+        X_grasp = v_x / norm_x
         
-        # 确保Y轴方向一致性 (可选，但推荐)
-        # 假设我们希望 Y 轴大致指向 X 轴正方向 (如果Y在X上的投影为负，则翻转)
-        if Y_grasp[0] < 0:
-            Y_grasp = -Y_grasp
+        # 确保X轴方向一致性 (可选，但推荐)
+        # 假设我们希望 X 轴大致指向 X 轴正方向
+        if X_grasp[0] < 0:
+            X_grasp = -X_grasp
             
-        # X 轴: 右手定则
-        X_grasp = np.cross(Y_grasp, Z_grasp)
-        X_grasp /= np.linalg.norm(X_grasp) # 归一化
+        # Y 轴: 右手定则 Y = Z × X
+        Y_grasp = np.cross(Z_grasp, X_grasp)
+        Y_grasp /= np.linalg.norm(Y_grasp)  # 归一化
         
-        # 重新计算 Z 轴以确保绝对正交 (虽然在此例中 Z_grasp 已经是 (0,0,-1))
-        # Z_grasp = np.cross(X_grasp, Y_grasp)
+        # 重新计算 X 轴确保严格正交
+        X_grasp = np.cross(Y_grasp, Z_grasp)
+        X_grasp /= np.linalg.norm(X_grasp)
 
         # 转换为旋转矩阵和四元数
         R_mat = np.array([X_grasp, Y_grasp, Z_grasp]).T
