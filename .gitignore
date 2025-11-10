@@ -19,3 +19,6 @@ non_ros_pkg/
 # vscode
 /.vscode/browse.vc.db
 
+# data
+detection_results/
+*.bag
