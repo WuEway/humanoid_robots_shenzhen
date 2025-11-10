@@ -678,7 +678,7 @@ if __name__ == "__main__":
     from realsense_system import BagFileReader, RealSenseSystem
     
     # 使用交互式GroundingDino可视化器
-    bag_file_path = "/home/yiwei/my_project/HumanoidRobots_shenzhen/takeout_bag.bag"
+    bag_file_path = "/home/yiwei/my_project/HumanoidRobots_shenzhen/takeout_bag_real_scene.bag"
     
     print("🤖 启动GroundingDino+SAM外卖袋检测系统")
     

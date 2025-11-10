@@ -2,7 +2,7 @@ import open3d as o3d
 import numpy as np
 
 # 1. 加载你的点云
-pcd = o3d.io.read_point_cloud("detection_results/frame_0150_delivery_box._pink_takeout_bag/pink_takeout_bag_00_pointcloud_rgb.ply")
+pcd = o3d.io.read_point_cloud("detection_results/frame_0090_delivery_box._pink_takeout_bag/pink_takeout_bag_01_pointcloud_rgb.ply")
 
 # 2. 可选：轻微的体素下采样进一步平滑
 pcd = pcd.voxel_down_sample(voxel_size=0.002)
@@ -73,9 +73,9 @@ else:
 
 # # 7. 可视化最终结果
 # print("可视化清理后的点云...")
-# o3d.visualization.draw_geometries([pcd_final], 
-#                                   window_name="只保留最大点云团",
-#                                   width=1024, height=768)
+o3d.visualization.draw_geometries([pcd_final], 
+                                  window_name="只保留最大点云团",
+                                  width=1024, height=768)
 
 # ------ 提取抓取边缘点 ------
 # 假设 pcd_final 是已经去除了噪声和提手的点云
