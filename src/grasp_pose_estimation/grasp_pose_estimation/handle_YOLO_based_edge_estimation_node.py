@@ -195,29 +195,45 @@ class YOLOProcessor:
             for i, (mask_padded, box, confidence, class_id) in enumerate(
                 zip(masks_data, boxes, confidences, class_ids)
             ):
-                # 处理掩码高度尺寸（可能需要裁剪padding）
-                h_diff = mask_h - orig_h
-                if h_diff > 0:
-                    # 掩码比原图高，需要裁剪掉多余的padding
-                    top_pad = h_diff // 2
-                    bottom_pad = h_diff - top_pad
-                    mask_cropped = mask_padded[top_pad:mask_h-bottom_pad, :]
-                else:
-                    mask_cropped = mask_padded
-                # 处理掩码宽度尺寸（可能需要裁剪padding）
-                w_diff = mask_w - orig_w
-                if w_diff > 0:
-                    # 掩码比原图宽，需要裁剪掉多余的padding
-                    left_pad = w_diff // 2
-                    right_pad = w_diff - left_pad
-                    mask_cropped = mask_cropped[:, left_pad:mask_w-right_pad]
-                else:
-                    mask_cropped = mask_cropped
-
-                print(f"裁剪后掩码尺寸: {mask_cropped.shape[1]}x{mask_cropped.shape[0]}")
+                # ------------ 手动调整掩码尺寸以匹配原始图像 ------------
+                # 步骤1: 计算原始图像的宽高比
+                orig_aspect = orig_w / orig_h
+                # 步骤2: 计算 YOLO 缩放后的尺寸（保持宽高比）
+                if orig_aspect >= 1:  # 宽图
+                    scaled_w = self.imgsz
+                    scaled_h = int(self.imgsz / orig_aspect)
+                else:  # 高图
+                    scaled_h = self.imgsz
+                    scaled_w = int(self.imgsz * orig_aspect)
+                # 步骤3: 计算 padding（YOLO 会将尺寸 pad 到最接近的 stride 倍数，通常是32）
+                stride = 32
+                padded_h = ((scaled_h + stride - 1) // stride) * stride
+                padded_w = ((scaled_w + stride - 1) // stride) * stride
+                # 步骤4: 去除 padding（裁剪到缩放后的尺寸）
+                h_pad_total = padded_h - scaled_h
+                w_pad_total = padded_w - scaled_w
                 
+                h_pad_top = h_pad_total // 2
+                h_pad_bottom = h_pad_total - h_pad_top
+                w_pad_left = w_pad_total // 2
+                w_pad_right = w_pad_total - w_pad_left
+                # 裁剪掉 padding
+                if mask_h == padded_h and mask_w == padded_w:
+                    # 掩码尺寸与预期的 padded 尺寸匹配
+                    mask_unpadded = mask_padded[
+                        h_pad_top:padded_h-h_pad_bottom,
+                        w_pad_left:padded_w-w_pad_right
+                    ]
+                else:
+                    # 如果不匹配，直接使用原始掩码
+                    mask_unpadded = mask_padded
+                print(f"去除 padding 后掩码形状: {mask_unpadded.shape}")
+                # 步骤5: 现在 resize 到原始图像尺寸
+                mask_resized = cv2.resize(mask_unpadded, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+                print(f"最终掩码形状: {mask_resized.shape}")
+
                 # 二值化掩码
-                binary_mask = (mask_cropped > 0.001).astype(np.uint8)
+                binary_mask = (mask_resized > 0.001).astype(np.uint8)
                 
                 # 获取边界框坐标
                 x1, y1, x2, y2 = box.astype(int)
