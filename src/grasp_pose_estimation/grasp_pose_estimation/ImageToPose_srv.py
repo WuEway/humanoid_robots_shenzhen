@@ -7,7 +7,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image, PointCloud2, PointField
+from sensor_msgs.msg import Image, PointCloud2, PointField, CameraInfo
 from geometry_msgs.msg import PoseStamped, TransformStamped, PointStamped
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
@@ -311,7 +311,16 @@ class GroundingDinoGraspServer(Node):
             "fy": 427.3405,
             "cx": 430.8444,
             "cy": 246.7171
-        }
+            }
+        self.has_camera_info = False     
+        self.declare_parameter('camera_info_topic', '/woosh/camera/woosh_left_hand_rgbd/color/camera_info')
+        camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo,
+            camera_info_topic,
+            self.camera_info_callback,
+            10
+        )
         self.get_logger().info(f"相机内参: fx={self.cam_intrinsics['fx']}, fy={self.cam_intrinsics['fy']}, cx={self.cam_intrinsics['cx']}, cy={self.cam_intrinsics['cy']}")
         
         # 5. 创建服务（服务类型：ImageToPose）
@@ -324,6 +333,31 @@ class GroundingDinoGraspServer(Node):
         self.get_logger().info("✅ GroundingDino抓取服务端启动完成")
         self.get_logger().info(f"服务话题: /grounding_dino/image_to_grasp")
         self.get_logger().info(f"TF发布: {self.base_frame} → {self.grasp_frame}")
+    
+    def camera_info_callback(self, msg: CameraInfo):
+        """从camera_info获取真实的相机内参"""
+        if not self.has_camera_info:
+            K = msg.k  # 相机内参矩阵 (3x3)
+            self.k_cam = np.array([
+                [K[0], K[1], K[2]],
+                [K[3], K[4], K[5]],
+                [K[6], K[7], K[8]]
+            ])
+            self.has_camera_info = True
+            
+            self.get_logger().info(
+                f"📷 Camera intrinsics received from camera_info: "
+                f"fx={self.k_cam[0,0]:.2f}, fy={self.k_cam[1,1]:.2f}, "
+                f"cx={self.k_cam[0,2]:.2f}, cy={self.k_cam[1,2]:.2f}"
+            )
+            self.cam_intrinsics = {
+            "fx": self.k_cam[0,0],
+            "fy": self.k_cam[1,1],
+            "cx": self.k_cam[0,2],
+            "cy": self.k_cam[1,2]
+            }
+            # 获取一次后可以取消订阅（可选）
+            # self.destroy_subscription(self.camera_info_sub)
 
     def handle_grasp_request(self, request, response):
         """服务回调函数：处理客户端的图像请求，生成抓取位姿"""

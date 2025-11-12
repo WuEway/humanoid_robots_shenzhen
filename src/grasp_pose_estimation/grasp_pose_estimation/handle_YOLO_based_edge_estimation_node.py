@@ -451,8 +451,8 @@ class YOLOROS2Node(Node):
             voxel_size=0.005,              # 提手点云内部处理的体素大小
             dbscan_eps=0.02,               # 提手聚类Eps
             dbscan_min_points=30,
-            hsv_v_max=0.35,                # 黑色/深棕色的亮度阈值
-            hsv_s_max=0.6,                 # 黑色/深棕色的饱和度阈值
+            hsv_v_max=0.2,                # 黑色/深棕色的亮度阈值
+            hsv_s_max=0.8,                 # 黑色/深棕色的饱和度阈值
             u_shape_min_points=50,         # U形簇最小点数
             u_shape_central_ratio=0.4,     # U形检测中心区域比例
             u_shape_hollow_ratio=0.15,     # U形空心比例
@@ -463,7 +463,7 @@ class YOLOROS2Node(Node):
 
         # 定义坐标系名称，方便管理
         self.robot_base_frame = 'woosh_base_link'  # 确认这是你的机器人基座标系
-        self.camera_frame = 'woosh_left_hand_rgbd_color_optical_frame' # 确认这是你的相机坐标系
+        self.camera_frame = 'woosh_left_hand_rgbd_depth_optical_frame' # 确认这是你的相机坐标系
 
         # 初始化 TF2 Buffer 和 Listener
         self.tf_buffer = Buffer()
@@ -515,12 +515,12 @@ class YOLOROS2Node(Node):
         self.color_sub_filter = message_filters.Subscriber(
             self,
             Image,
-            '/woosh/camera/woosh_head_rgbd/color/image_raw'
+            '/woosh/camera/woosh_left_hand_rgbd/color/image_raw'
         )
         self.depth_sub_filter = message_filters.Subscriber(
             self,
             Image,
-            '/woosh/camera/woosh_head_rgbd/aligned_depth_to_color/image_raw'
+            '/woosh/camera/woosh_left_hand_rgbd/aligned_depth_to_color/image_raw'
         )
 
         # 2. 创建时间同步器 (ApproximateTimeSynchronizer)
@@ -685,7 +685,10 @@ class YOLOROS2Node(Node):
                         self.get_logger().info("已发布 [累积] 调试点云")
 
                         # 5. 使用GraspPoseEstimator计算抓取位姿 (在累积点云上)
+                        t_start = time.time()
                         grasp_pose_result = self.grasp_estimator.calculate_grasp_pose(acc_points, acc_colors)
+                        t_end = time.time()
+                        self.get_logger().info(f"🛠️[Handle] 抓取位姿计算耗时: {t_end - t_start:.3f} 秒")
                         
                         if grasp_pose_result:
                             grasp_point, grasp_orientation = grasp_pose_result
@@ -768,15 +771,22 @@ class YOLOROS2Node(Node):
         """
         if point_cloud_numpy.size == 0:
             return np.array([]) # 如果点云为空，直接返回空数组
-            
+        
+        self.get_logger().info(f"请求的时间戳: {timestamp.sec}.{timestamp.nanosec}")
+        self.get_logger().info(f"当前时间戳: {self.get_clock().now().to_msg().sec}.{self.get_clock().now().to_msg().nanosec}")
+
         try:
             # 1. 查找指定时间戳的变换
             transform = self.tf_buffer.lookup_transform(
                 target_frame,
                 source_frame,
-                timestamp,  # <--- 使用传入的时间戳
-                timeout=rclpy.duration.Duration(seconds=0.1) # 增加一个短暂超时
-            )
+                rclpy.time.Time())
+            # transform = self.tf_buffer.lookup_transform(
+            #     target_frame,
+            #     source_frame,
+            #     timestamp,  # <--- 使用传入的时间戳
+            #     timeout=rclpy.duration.Duration(seconds=0.1) # 增加一个短暂超时
+            # )
 
             # 2. 逐点进行变换
             # (对于大规模点云有更高效的方法，但这种方法最清晰、最可靠)

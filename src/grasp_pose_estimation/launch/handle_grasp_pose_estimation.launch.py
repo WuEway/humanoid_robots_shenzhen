@@ -26,12 +26,12 @@ def launch_setup(context, *args, **kwargs):
 
     launch_entities.append(
         ExecuteProcess(
-            name="handle_groundedSAM_based_edge_estimation_node",
+            name="handle_YOLO_based_edge_estimation_node",
             cmd=[
                 "HF_HUB_OFFLINE=1",
                 python_path,
                 os.path.join(
-                    pkg_install_path, "lib", this_pkg_name, "handle_groundedSAM_based_edge_estimation_node"
+                    pkg_install_path, "lib", this_pkg_name, "handle_YOLO_based_edge_estimation_node"
                 ),
             ],
             output="screen",
