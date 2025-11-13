@@ -1,6 +1,7 @@
 # 请求: 客户端发送RGB图像和深度图像
 sensor_msgs/Image color_image
 sensor_msgs/Image depth_image
+string grasp_type
 ---
 # 响应：服务端返回结果和抓取位姿
 bool success

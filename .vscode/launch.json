@@ -1,0 +1,11 @@
+{
+    "configurations": [
+        {
+            "name": "YOLO_based_handle_estimation_node",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "grasp_pose_estimation.YOLO_based_handle_estimation_node",
+            "justMyCode": false
+        }
+    ]
+}

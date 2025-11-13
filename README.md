@@ -246,3 +246,31 @@ ros2 run rviz2 rviz2
 
 ---
 
+## 服务版本
+### 运行命令
+运行基于YOLO的抓取位姿检测服务端，根据客户端指定的抓取类型—— **（边缘 / 提手）** ，服务器会返回 **（边缘 / 提手）** 抓取位姿，并且发布  **（边缘 / 提手）** 的TF变换和话题。
+```python
+ros2 launch grasp_pose_estimation yolo_edge_or_handle.launch.py
+```
+```yaml
+TF Frame: 
+edge_grasp_food_pos
+handle_grasp_food_pos
+Topic: 
+'/food_detection/edge_grasp_pose' 
+'/food_detection/handle_grasp_pose'
+```
+客户端运行命令
+进入wrp_ws工作空间
+```python
+ros2 launch operation_library operation_library.launch.py 
+```
+新建终端运行
+```python
+# 边缘检测
+ros2 topic pub /action_planner/action_command std_msgs/msg/String "data: 'locate_food'" --once
+#提手检测
+ros2 topic pub /action_planner/action_command std_msgs/msg/String "data: 'locate_food_handle'" --once
+```
+
+

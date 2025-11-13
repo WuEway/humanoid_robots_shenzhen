@@ -30,7 +30,7 @@ class HandleGraspEstimator:
                  dbscan_min_points: int = 30,
                  hsv_v_max: float = 0.3,
                  hsv_s_max: float = 0.5,
-                 u_shape_min_points: int = 50,
+                 u_shape_min_points: int = 100,
                  u_shape_central_ratio: float = 0.4,
                  u_shape_hollow_ratio: float = 0.1,
                  grasp_bottom_height: float = 0.03,
@@ -256,12 +256,13 @@ class HandleGraspEstimator:
         
         hollow_ratio = count_central / total_points
 
-        # self._visualize_pca_projection(
-        #     pcd, P_2d,
-        #     x_min, x_max, y_min, y_max,
-        #     cx_min, cx_max, cy_min, cy_max,
-        #     hollow_ratio < self.u_shape_hollow_ratio
-        # )
+        if self.visualize:
+            self._visualize_pca_projection(
+                pcd, P_2d,
+                x_min, x_max, y_min, y_max,
+                cx_min, cx_max, cy_min, cy_max,
+                hollow_ratio < self.u_shape_hollow_ratio
+            )
 
         # 如果中心区域的点数比例低于阈值，则认为是“空心”U形
         return hollow_ratio < self.u_shape_hollow_ratio

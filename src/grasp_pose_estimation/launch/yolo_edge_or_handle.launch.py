@@ -31,7 +31,7 @@ def launch_setup(context, *args, **kwargs):
         Node(
             prefix=f"{python_path}",
             package=this_pkg_name,
-            executable="yolo_based_edge_estimation_node",
+            executable="yolo_edge_or_handle_srv",
             output="screen",
             emulate_tty=True,
         )

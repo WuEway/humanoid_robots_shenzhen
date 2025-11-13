@@ -1,23 +1,23 @@
 {
     "python.autoComplete.extraPaths": [
-        "/home/rog/Documents/NbMan2/wyw_ws/install/image_to_pose/local/lib/python3.10/dist-packages",
-        "/home/rog/Documents/NbMan2/wyw_ws/build/grasp_pose_estimation",
-        "/home/rog/Documents/NbMan2/wyw_ws/install/grasp_pose_estimation/lib/python3.10/site-packages",
-        "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_py/local/lib/python3.10/dist-packages",
-        "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_msgs/local/lib/python3.10/dist-packages",
-        "/home/rog/Documents/ros2/moveit2_main_ws/build/moveit_configs_utils",
-        "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_configs_utils/lib/python3.10/site-packages",
+        "/home/nros/Documents/NbMan2/wyw_ws/build/grasp_pose_estimation",
+        "/home/nros/Documents/NbMan2/wyw_ws/install/grasp_pose_estimation/lib/python3.10/site-packages",
+        "/home/nros/Documents/NbMan2/wyw_ws/install/image_to_grasp/local/lib/python3.10/dist-packages",
+        "/home/nros/Documents/ros2/moveit2_main_ws/install/moveit_py/local/lib/python3.10/dist-packages",
+        "/home/nros/Documents/ros2/moveit2_main_ws/install/moveit_msgs/local/lib/python3.10/dist-packages",
+        "/home/nros/Documents/ros2/moveit2_main_ws/build/moveit_configs_utils",
+        "/home/nros/Documents/ros2/moveit2_main_ws/install/moveit_configs_utils/lib/python3.10/site-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
     "python.analysis.extraPaths": [
-        "/home/rog/Documents/NbMan2/wyw_ws/install/image_to_pose/local/lib/python3.10/dist-packages",
-        "/home/rog/Documents/NbMan2/wyw_ws/build/grasp_pose_estimation",
-        "/home/rog/Documents/NbMan2/wyw_ws/install/grasp_pose_estimation/lib/python3.10/site-packages",
-        "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_py/local/lib/python3.10/dist-packages",
-        "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_msgs/local/lib/python3.10/dist-packages",
-        "/home/rog/Documents/ros2/moveit2_main_ws/build/moveit_configs_utils",
-        "/home/rog/Documents/ros2/moveit2_main_ws/install/moveit_configs_utils/lib/python3.10/site-packages",
+        "/home/nros/Documents/NbMan2/wyw_ws/build/grasp_pose_estimation",
+        "/home/nros/Documents/NbMan2/wyw_ws/install/grasp_pose_estimation/lib/python3.10/site-packages",
+        "/home/nros/Documents/NbMan2/wyw_ws/install/image_to_grasp/local/lib/python3.10/dist-packages",
+        "/home/nros/Documents/ros2/moveit2_main_ws/install/moveit_py/local/lib/python3.10/dist-packages",
+        "/home/nros/Documents/ros2/moveit2_main_ws/install/moveit_msgs/local/lib/python3.10/dist-packages",
+        "/home/nros/Documents/ros2/moveit2_main_ws/build/moveit_configs_utils",
+        "/home/nros/Documents/ros2/moveit2_main_ws/install/moveit_configs_utils/lib/python3.10/site-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
@@ -27,5 +27,6 @@
     },
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "cmake.sourceDirectory": "/home/nros/Documents/NbMan2/wyw_ws/src/image_to_grasp"
 }

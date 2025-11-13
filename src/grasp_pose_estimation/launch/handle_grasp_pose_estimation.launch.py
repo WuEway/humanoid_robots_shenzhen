@@ -1,9 +1,10 @@
 from launch import LaunchDescription
-from launch.actions import OpaqueFunction, ExecuteProcess
+from launch.actions import OpaqueFunction, ExecuteProcess, SetEnvironmentVariable
 from launch.substitutions import ThisLaunchFileDir
 from launch.launch_context import LaunchContext
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
 import os
+from launch_ros.actions import Node
 
 
 def get_this_package_name(context: LaunchContext):
@@ -19,25 +20,21 @@ def launch_setup(context, *args, **kwargs):
     ws_path = os.path.dirname(os.path.dirname(pkg_install_path))
     python_path = os.path.join(ws_path, ".venv", "bin", "python")
 
-    # print("This package name:", this_pkg_name)
-    # print("Package install path:", pkg_install_path)
-    # print("Workspace path:", ws_path)
-    # print("Python path:", python_path)
+    launch_entities.append(
+        SetEnvironmentVariable(
+            name="HF_HUB_OFFLINE",
+            value="1",
+        )
+    )
 
     launch_entities.append(
-        ExecuteProcess(
-            name="handle_YOLO_based_edge_estimation_node",
-            cmd=[
-                "HF_HUB_OFFLINE=1",
-                python_path,
-                os.path.join(
-                    pkg_install_path, "lib", this_pkg_name, "handle_YOLO_based_edge_estimation_node"
-                ),
-            ],
+        Node(
+            prefix=f"{python_path}",
+            package=this_pkg_name,
+            executable="yolo_based_handle_estimation_node",
             output="screen",
-            shell=True,
             emulate_tty=True,
-        ),
+        )
     )
 
     return launch_entities

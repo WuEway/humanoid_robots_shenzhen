@@ -11,7 +11,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        (os.path.join("share", package_name, "launch"), glob("launch/*")),
+        (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
         (os.path.join("share", package_name, "srv"), glob("srv/*.srv")),
     ],
     install_requires=["setuptools"],
@@ -28,11 +28,12 @@ setup(
     entry_points={
         "console_scripts": [
             "groundedSAM_based_edge_estimation_node = grasp_pose_estimation.groundedSAM_based_edge_estimation_node:main",
-            "handle_groundedSAM_based_edge_estimation_node = grasp_pose_estimation.handle_groundedSAM_based_edge_estimation_node:main",
+            "groundedSAM_based_handle_estimation_node = grasp_pose_estimation.groundedSAM_based_handle_estimation_node:main",
             "ImageToPose_srv = grasp_pose_estimation.ImageToPose_srv:main",
             "image_to_grasp_client = grasp_pose_estimation.image_to_grasp_client:main",
             "yolo_based_edge_estimation_node = grasp_pose_estimation.YOLO_based_edge_estimation_node:main",
-            "handle_YOLO_based_edge_estimation_node = grasp_pose_estimation.handle_YOLO_based_edge_estimation_node:main",
+            "yolo_based_handle_estimation_node = grasp_pose_estimation.YOLO_based_handle_estimation_node:main",
+            "yolo_edge_or_handle_srv = grasp_pose_estimation.YOLO_edge_or_handle_srv:main",
         ],
     },
 )

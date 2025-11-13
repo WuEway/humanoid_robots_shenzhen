@@ -1,8 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import OpaqueFunction, ExecuteProcess
+from launch.actions import OpaqueFunction, ExecuteProcess, SetEnvironmentVariable
 from launch.substitutions import ThisLaunchFileDir
 from launch.launch_context import LaunchContext
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
+from launch_ros.actions import Node
 import os
 
 
@@ -25,19 +26,20 @@ def launch_setup(context, *args, **kwargs):
     # print("Python path:", python_path)
 
     launch_entities.append(
-        ExecuteProcess(
-            name="groundedSAM_based_edge_estimation_node",
-            cmd=[
-                "HF_HUB_OFFLINE=1",
-                python_path,
-                os.path.join(
-                    pkg_install_path, "lib", this_pkg_name, "groundedSAM_based_edge_estimation_node"
-                ),
-            ],
+        SetEnvironmentVariable(
+            name="HF_HUB_OFFLINE",
+            value="1",
+        )
+    )
+
+    launch_entities.append(
+        Node(
+            prefix=f"{python_path}",
+            package=this_pkg_name,
+            executable="groundedSAM_based_edge_estimation_node",
             output="screen",
-            shell=True,
             emulate_tty=True,
-        ),
+        )
     )
 
     return launch_entities

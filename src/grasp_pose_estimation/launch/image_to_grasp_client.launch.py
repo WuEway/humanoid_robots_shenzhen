@@ -1,9 +1,10 @@
 from launch import LaunchDescription
-from launch.actions import OpaqueFunction, ExecuteProcess
+from launch.actions import OpaqueFunction, ExecuteProcess, SetEnvironmentVariable
 from launch.substitutions import ThisLaunchFileDir
 from launch.launch_context import LaunchContext
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
 import os
+from launch_ros.actions import Node
 
 
 def get_this_package_name(context: LaunchContext):
@@ -25,19 +26,20 @@ def launch_setup(context, *args, **kwargs):
     # print("Python path:", python_path)
 
     launch_entities.append(
-        ExecuteProcess(
-            name="image_to_grasp_client",
-            cmd=[
-                "HF_HUB_OFFLINE=1",
-                python_path,
-                os.path.join(
-                    pkg_install_path, "lib", this_pkg_name, "image_to_grasp_client"
-                ),
-            ],
+        SetEnvironmentVariable(
+            name="HF_HUB_OFFLINE",
+            value="1",
+        )
+    )
+
+    launch_entities.append(
+        Node(
+            prefix=f"{python_path}",
+            package=this_pkg_name,
+            executable="image_to_grasp_client",
             output="screen",
-            shell=True,
             emulate_tty=True,
-        ),
+        )
     )
 
     return launch_entities
